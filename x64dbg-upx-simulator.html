@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>x64dbg UPX Unpacking Simulator</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', monospace; font-size: 13px; background: #1e1e1e; color: #d4d4d4; min-height: 100vh; padding: 20px; }
+  h1 { font-family: sans-serif; font-size: 18px; font-weight: 500; color: #fff; margin-bottom: 6px; }
+  .subtitle { font-family: sans-serif; font-size: 13px; color: #888; margin-bottom: 16px; }
+  .dbg { background: #252526; border: 1px solid #3c3c3c; border-radius: 8px; overflow: hidden; max-width: 960px; margin: 0 auto; }
+  .toolbar { background: #2d2d2d; border-bottom: 1px solid #3c3c3c; padding: 8px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tb-label { font-size: 12px; color: #888; font-family: sans-serif; }
+  .tb-btn { padding: 4px 12px; border: 1px solid #555; border-radius: 4px; background: #3c3c3c; color: #d4d4d4; font-size: 12px; cursor: pointer; font-family: monospace; }
+  .tb-btn:hover:not([disabled]) { background: #4a4a4a; border-color: #777; }
+  .tb-btn[disabled] { opacity: 0.35; cursor: default; pointer-events: none; }
+  .panels { display: grid; grid-template-columns: 1fr 210px; }
+  .panel-title { font-size: 11px; color: #888; padding: 4px 10px; background: #2d2d2d; border-bottom: 1px solid #3c3c3c; border-top: 1px solid #3c3c3c; font-family: sans-serif; }
+  .disasm { height: 210px; overflow-y: auto; background: #1e1e1e; }
+  .drow { display: grid; grid-template-columns: 115px 95px 80px 1fr; padding: 3px 10px; border-left: 3px solid transparent; font-size: 12px; }
+  .drow:hover { background: #2a2a2a; }
+  .drow.cur { background: #094771; border-left-color: #007acc; }
+  .drow.bp-row { border-left-color: #e74c3c; }
+  .drow.cur.bp-row { background: #4a1010; border-left-color: #e74c3c; }
+  .c-addr { color: #858585; }
+  .c-bytes { color: #555; }
+  .c-mn { color: #569cd6; font-weight: bold; }
+  .c-op { color: #d4d4d4; }
+  .badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 6px; font-family: sans-serif; }
+  .b-stub { background: #333; color: #888; }
+  .b-oep  { background: #4a3800; color: #ffc107; }
+  .b-real { background: #1a3a1a; color: #4caf50; }
+  .dump { height: 80px; overflow-y: auto; background: #1e1e1e; font-size: 12px; }
+  .dumprow { display: flex; gap: 12px; padding: 2px 10px; }
+  .da { color: #858585; min-width: 90px; }
+  .db { color: #d4d4d4; min-width: 200px; }
+  .dc { color: #555; }
+  .dumprow.hi .db { color: #4caf50; }
+  .regs { border-left: 1px solid #3c3c3c; background: #1e1e1e; padding: 8px 10px; overflow-y: auto; height: 298px; }
+  .rrow { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #2a2a2a; }
+  .rn { color: #858585; font-size: 12px; }
+  .rv { font-size: 12px; color: #d4d4d4; }
+  .rv.ch { color: #4caf50; }
+  .cmdbar { display: flex; gap: 8px; padding: 8px 10px; background: #2d2d2d; border-top: 1px solid #3c3c3c; }
+  .cmdinput { flex: 1; padding: 5px 10px; border: 1px solid #555; border-radius: 4px; background: #1e1e1e; color: #d4d4d4; font-family: monospace; font-size: 13px; outline: none; }
+  .cmdinput:focus { border-color: #007acc; }
+  .cmdbtn { padding: 5px 14px; border: 1px solid #555; border-radius: 4px; background: #3c3c3c; color: #d4d4d4; font-size: 13px; cursor: pointer; font-family: monospace; }
+  .cmdbtn:hover { background: #4a4a4a; }
+  .log { height: 90px; overflow-y: auto; background: #0d0d0d; border-top: 1px solid #3c3c3c; padding: 6px 10px; font-size: 12px; }
+  .ll { padding: 1px 0; color: #858585; }
+  .ll.info { color: #569cd6; }
+  .ll.good { color: #4caf50; }
+  .ll.warn { color: #ffc107; }
+  .ll.bph  { color: #e74c3c; }
+  .tip { background: #2d2200; border-left: 3px solid #ffc107; padding: 8px 12px; font-size: 12px; color: #ffc107; margin: 6px 10px; font-family: sans-serif; line-height: 1.6; border-radius: 0 4px 4px 0; }
+  .tip b { color: #fff; font-weight: 600; }
+  .status { padding: 4px 10px; font-size: 11px; background: #007acc; color: #fff; display: flex; justify-content: space-between; font-family: sans-serif; }
+  .sc { display: none; padding: 14px; background: #252526; border-top: 1px solid #3c3c3c; font-family: sans-serif; }
+  .sc.vis { display: block; }
+  .sc-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #fff; }
+  .sc-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .sc-lbl { font-size: 13px; color: #888; min-width: 110px; }
+  .sc-val { font-family: monospace; font-size: 13px; color: #4caf50; background: #1e1e1e; padding: 3px 8px; border-radius: 4px; border: 1px solid #3c3c3c; }
+  .sc-btn { padding: 6px 14px; border: 1px solid #555; border-radius: 4px; background: #3c3c3c; color: #d4d4d4; font-size: 13px; cursor: pointer; }
+  .sc-btn:hover:not([disabled]) { background: #094771; color: #7ec8f7; border-color: #007acc; }
+  .sc-btn[disabled] { opacity: 0.35; cursor: default; pointer-events: none; }
+  .sc-btn.done { background: #1a3a1a; color: #4caf50; border-color: #2d6a2d; }
+  .imp-list { background: #1e1e1e; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; margin-top: 8px; max-height: 80px; overflow-y: auto; display: none; border: 1px solid #3c3c3c; }
+  .sc-msg { font-size: 12px; color: #888; margin-top: 8px; }
+
+  /* scrollbar styling */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #1e1e1e; }
+  ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div style="max-width:960px;margin:0 auto 16px;">
+  <h1>x64dbg UPX Unpacking Simulator</h1>
+  <p class="subtitle">Interactive walkthrough — learn how to unpack a UPX-packed binary, find the OEP, and dump with Scylla.</p>
+</div>
+
+<div class="dbg">
+  <div class="toolbar">
+    <span class="tb-label">x64dbg — helloworld_packed.exe</span>
+    <div style="flex:1"></div>
+    <button class="tb-btn" id="btn-f9" onclick="doF9()">&#9654; Run (F9)</button>
+    <button class="tb-btn" id="btn-f8" onclick="doF8()" disabled>Step Over (F8)</button>
+    <button class="tb-btn" id="btn-f7" onclick="doF7()" disabled>Step Into (F7)</button>
+    <button class="tb-btn" onclick="doRestart()">&#8635; Restart</button>
+  </div>
+
+  <div class="panels">
+    <div>
+      <div class="panel-title">Disassembly — CPU</div>
+      <div class="disasm" id="disasm"></div>
+      <div id="tipbox"></div>
+      <div class="panel-title">Memory Dump</div>
+      <div class="dump" id="dump"></div>
+      <div class="cmdbar">
+        <input class="cmdinput" id="cmd" placeholder="Type: bp VirtualAlloc  then press Enter" onkeydown="if(event.key==='Enter')doCmd()">
+        <button class="cmdbtn" onclick="doCmd()">Enter</button>
+      </div>
+    </div>
+    <div>
+      <div class="panel-title">Registers</div>
+      <div class="regs" id="regs"></div>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <div class="sc" id="scylla">
+    <div class="sc-title">Scylla — Import Reconstructor &nbsp;<span style="font-size:12px;color:#888;font-weight:400">(Plugins → Scylla in real x64dbg)</span></div>
+    <div class="sc-row"><span class="sc-lbl">Process:</span><span class="sc-val">helloworld_packed.exe</span></div>
+    <div class="sc-row"><span class="sc-lbl">OEP:</span><span class="sc-val" id="sc-oep">0x00401000</span></div>
+    <div class="sc-row">
+      <button class="sc-btn" id="sb1" onclick="sc1()">1. IAT Autosearch</button>
+      <button class="sc-btn" id="sb2" onclick="sc2()" disabled>2. Get Imports</button>
+      <button class="sc-btn" id="sb3" onclick="sc3()" disabled>3. Dump</button>
+      <button class="sc-btn" id="sb4" onclick="sc4()" disabled>4. Fix Dump</button>
+    </div>
+    <div class="imp-list" id="imp-list"></div>
+    <div class="sc-msg" id="sc-msg"></div>
+  </div>
+
+  <div class="status">
+    <span id="sl">Paused — system breakpoint</span>
+    <span id="sr">ntdll.dll</span>
+  </div>
+</div>
+
+<div style="max-width:960px;margin:14px auto;font-family:sans-serif;font-size:12px;color:#666;">
+  Built for learning malware analysis — packer/unpacker concepts. Part of a personal study project.
+</div>
+
+<script>
+let stage = 0, bpSet = false, prev = {};
+
+const S = [
+  {
+    sl:"Paused — system breakpoint (before your code runs)",
+    sr:"ntdll.dll",
+    tip:"x64dbg always stops here first — before your packed EXE runs at all. This is normal. Press <b>Run (F9)</b> to jump to the UPX stub entry point.",
+    rows:[
+      {a:"7FF8`A1230000",b:"48 83 EC 28",m:"sub",o:"rsp, 28h",cur:true},
+      {a:"7FF8`A1230004",b:"E8 47 00 00",m:"call",o:"LdrInitializeThunk"},
+      {a:"7FF8`A1230009",b:"90",m:"nop",o:""},
+      {a:"7FF8`A123000A",b:"C3",m:"ret",o:""},
+    ],
+    regs:{RAX:"0000000000000000",RBX:"0000000000000000",RCX:"00007FF8A1230000",RDX:"0000000000000000",RSP:"000000000014FE80",RBP:"0000000000000000",RIP:"00007FF8A1230000"},
+    dump:[],f9:true,f8:false,f7:false
+  },
+  {
+    sl:"Paused — UPX stub entry point",
+    sr:"helloworld_packed.exe",
+    tip:'You are at the <b>UPX stub</b> — this is NOT your original code. Notice the strange instructions (pushad, mov esi...). Now set a breakpoint: type <b>bp VirtualAlloc</b> in the command bar and press Enter. Then press <b>Run (F9)</b>.',
+    rows:[
+      {a:"00401000",b:"60",m:"pushad",o:"",cur:true,tag:"stub"},
+      {a:"00401001",b:"BE 00 90 40 00",m:"mov",o:"esi, 409000h",tag:"stub"},
+      {a:"00401006",b:"8D BE 00 80 FF",m:"lea",o:"edi, [esi-8000h]",tag:"stub"},
+      {a:"0040100C",b:"57",m:"push",o:"edi",tag:"stub"},
+      {a:"0040100D",b:"83 CD FF",m:"or",o:"ebp, FFFFFFFFh",tag:"stub"},
+      {a:"00401010",b:"EB 10",m:"jmp",o:"short 00401022h",tag:"stub"},
+    ],
+    regs:{RAX:"0000000000000001",RBX:"0000000000000000",RCX:"0000000000000000",RDX:"0000000000000000",RSP:"000000000014FE78",RBP:"0000000000000000",RIP:"0000000000401000"},
+    dump:[{a:"00409000",b:"1F 8B 08 C5 A2 3B 00 03 BB 07 8D A4 24 7E A3 B2",c:"....%;....$..~."}],
+    f9:false,f8:false,f7:false,needBP:true
+  },
+  {
+    sl:"Breakpoint hit — VirtualAlloc (kernel32.dll)",
+    sr:"kernel32.dll",
+    tip:"<b>Breakpoint hit!</b> The stub called VirtualAlloc. Look at <b>RCX = 0x5000</b> — that is the size of memory being requested for the unpacked payload. Press <b>Step Over (F8)</b> to return. After that, <b>RAX will hold the allocated address</b>.",
+    rows:[
+      {a:"7FF8`9F8A1234",b:"4C 8B D1",m:"mov",o:"r10, rcx",cur:true,tag:"stub",bp:true},
+      {a:"7FF8`9F8A1237",b:"B8 18 00 00",m:"mov",o:"eax, 18h"},
+      {a:"7FF8`9F8A123C",b:"0F 05",m:"syscall",o:""},
+      {a:"7FF8`9F8A123E",b:"C3",m:"ret",o:""},
+    ],
+    regs:{RAX:"00007FF89F8A1234",RBX:"0000000000000000",RCX:"0000000000005000",RDX:"0000000000000000",RSP:"000000000014FE50",RBP:"0000000000000000",RIP:"00007FF89F8A1234"},
+    dump:[{a:"00409000",b:"1F 8B 08 C5 A2 3B 00 03 BB 07 8D A4 24 7E A3 B2",c:"....%;....$..~."}],
+    f9:false,f8:true,f7:false
+  },
+  {
+    sl:"Returned from VirtualAlloc — RAX = new memory block",
+    sr:"helloworld_packed.exe",
+    tip:"<b>RAX = 0x00410000</b> — newly allocated memory block. The stub will now decompress your original EXE into this address. Press <b>Step Over (F8)</b> to run through the decompression loop. Watch the dump panel fill up.",
+    rows:[
+      {a:"00401035",b:"89 C7",m:"mov",o:"edi, eax",cur:true,tag:"stub"},
+      {a:"00401037",b:"F3 A4",m:"rep movsb",o:"[edi], [esi]",tag:"stub"},
+      {a:"00401039",b:"8B 07",m:"mov",o:"eax, [edi]",tag:"stub"},
+      {a:"0040103B",b:"09 C0",m:"or",o:"eax, eax",tag:"stub"},
+      {a:"0040103D",b:"74 2E",m:"je",o:"short 0040106Dh",tag:"stub"},
+    ],
+    regs:{RAX:"0000000000410000",RBX:"0000000000000000",RCX:"0000000000005000",RDX:"0000000000000000",RSP:"000000000014FE50",RBP:"0000000000000000",RIP:"0000000000401035"},
+    dump:[{a:"00410000",b:"00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",c:"................",hi:true}],
+    f9:false,f8:true,f7:false
+  },
+  {
+    sl:"Decompression done — tail JMP to OEP found",
+    sr:"helloworld_packed.exe",
+    tip:"Decompression complete! The dump shows <b>4D 5A (MZ)</b> — the real PE header is now in memory. The stub is about to jump to the OEP. Press <b>Step Into (F7)</b> to follow the JMP to your original code.",
+    rows:[
+      {a:"00401068",b:"61",m:"popad",o:"",tag:"stub"},
+      {a:"00401069",b:"8D 44 24 80",m:"lea",o:"eax, [esp-80h]",tag:"stub"},
+      {a:"0040106D",b:"6A 00",m:"push",o:"0",tag:"stub"},
+      {a:"0040106F",b:"39 C4",m:"cmp",o:"esp, eax",tag:"stub"},
+      {a:"00401071",b:"75 FA",m:"jne",o:"short 0040106Dh",tag:"stub"},
+      {a:"00401073",b:"E9 88 FF FF FF",m:"jmp",o:"00401000h  ← follow this",cur:true,tag:"oep"},
+    ],
+    regs:{RAX:"0000000000410000",RBX:"0000000000000000",RCX:"0000000000005000",RDX:"0000000000000000",RSP:"000000000014FE78",RBP:"0000000000000000",RIP:"0000000000401073"},
+    dump:[
+      {a:"00410000",b:"4D 5A 90 00 03 00 00 00 04 00 00 00 FF FF 00 00",c:"MZ..............",hi:true},
+      {a:"00410010",b:"B8 00 00 00 40 00 00 00 00 00 00 00 00 00 00 00",c:"....@...........",hi:true},
+    ],
+    f9:false,f8:false,f7:true
+  },
+  {
+    sl:"OEP reached — original code is running",
+    sr:"helloworld_packed.exe  [UNPACKED IN MEMORY]",
+    tip:"You are at the <b>OEP (0x00401000)</b> — your original helloworld.exe code. Notice it looks like normal compiled code: PUSH RBP, MOV RBP RSP — a standard function prologue, not a decompressor. Now use <b>Scylla below</b> — click each button in order.",
+    rows:[
+      {a:"00401000",b:"55",m:"push",o:"rbp",cur:true,tag:"real"},
+      {a:"00401001",b:"48 89 E5",m:"mov",o:"rbp, rsp",tag:"real"},
+      {a:"00401004",b:"48 83 EC 20",m:"sub",o:"rsp, 20h",tag:"real"},
+      {a:"00401008",b:"48 8D 0D F1 0F",m:"lea",o:'rcx, "Hello World"',tag:"real"},
+      {a:"0040100E",b:"FF 15 EC 1F 00",m:"call",o:"[printf]",tag:"real"},
+      {a:"00401014",b:"31 C0",m:"xor",o:"eax, eax",tag:"real"},
+      {a:"00401016",b:"C9",m:"leave",o:"",tag:"real"},
+      {a:"00401017",b:"C3",m:"ret",o:"",tag:"real"},
+    ],
+    regs:{RAX:"0000000000410000",RBX:"0000000000000000",RCX:"0000000000401200",RDX:"0000000000000000",RSP:"000000000014FE78",RBP:"0000000000000000",RIP:"0000000000401000"},
+    dump:[
+      {a:"00401000",b:"55 48 89 E5 48 83 EC 20 48 8D 0D F1 0F 00 FF 15",c:"UH..H.. H.......",hi:true},
+      {a:"00401010",b:"EC 1F 00 00 31 C0 C9 C3 48 65 6C 6C 6F 20 57 6F",c:"....1...Hello Wo",hi:true},
+    ],
+    f9:false,f8:false,f7:false,scylla:true
+  }
+];
+
+function log(msg,cls=""){
+  const el=document.getElementById("log");
+  const d=document.createElement("div");
+  d.className="ll "+(cls||"");
+  d.textContent=msg;
+  el.appendChild(d);
+  el.scrollTop=el.scrollHeight;
+}
+
+function render(){
+  const s=S[stage];
+  document.getElementById("disasm").innerHTML=s.rows.map(r=>{
+    let cls="drow";
+    if(r.cur)cls+=" cur";
+    if(r.bp&&bpSet)cls+=" bp-row";
+    const badge=r.tag==="stub"?'<span class="badge b-stub">stub</span>':
+                 r.tag==="oep" ?'<span class="badge b-oep">OEP jump</span>':
+                 r.tag==="real"?'<span class="badge b-real">your code</span>':"";
+    return `<div class="${cls}"><span class="c-addr">${r.a}</span><span class="c-bytes">${r.b}</span><span class="c-mn">${r.m}</span><span class="c-op">${r.o}${badge}</span></div>`;
+  }).join("");
+
+  document.getElementById("regs").innerHTML=Object.entries(s.regs).map(([k,v])=>{
+    const ch=prev[k]&&prev[k]!==v;
+    return `<div class="rrow"><span class="rn">${k}</span><span class="rv ${ch?'ch':''}">${v}</span></div>`;
+  }).join("");
+
+  const dump=document.getElementById("dump");
+  dump.innerHTML=!s.dump||!s.dump.length
+    ?'<div style="padding:8px 10px;color:#555;font-size:12px">Memory not yet allocated</div>'
+    :s.dump.map(r=>`<div class="dumprow ${r.hi?'hi':''}"><span class="da">${r.a}</span><span class="db">${r.b}</span><span class="dc">${r.c||''}</span></div>`).join("");
+
+  document.getElementById("tipbox").innerHTML=`<div class="tip">${s.tip}</div>`;
+  document.getElementById("sl").textContent=s.sl;
+  document.getElementById("sr").textContent=s.sr;
+  document.getElementById("btn-f9").disabled=!s.f9;
+  document.getElementById("btn-f8").disabled=!s.f8;
+  document.getElementById("btn-f7").disabled=!s.f7;
+  if(s.scylla) document.getElementById("scylla").classList.add("vis");
+}
+
+function go(n){ prev={...S[stage].regs}; stage=n; render(); }
+
+function doF9(){
+  if(stage===0){ log("[+] Running...","info"); log("[+] Hit entry point — UPX stub","bph"); go(1); }
+  else if(stage===1){
+    if(!bpSet){ log("[-] No breakpoint set. Type:  bp VirtualAlloc  in the command bar","warn"); return; }
+    log("[+] Running to breakpoint...","info");
+    log("[BREAKPOINT HIT] VirtualAlloc — kernel32.dll","bph");
+    go(2);
+  }
+}
+function doF8(){
+  if(stage===2){ log("[F8] Step over VirtualAlloc...","info"); log("[+] RAX = 0x00410000  ← new memory block","good"); go(3); }
+  else if(stage===3){ log("[F8] Stepping through decompression...","info"); log("[+] MZ header now visible in dump — decompression complete","good"); go(4); }
+}
+function doF7(){
+  if(stage===4){ log("[F7] Following JMP to OEP...","info"); log("[+] OEP = 0x00401000 — real code start","good"); log("[!] Open Scylla: Plugins → Scylla (shown below)","warn"); go(5); }
+}
+function doCmd(){
+  const inp=document.getElementById("cmd");
+  const raw=inp.value.trim(); inp.value="";
+  log("> "+raw);
+  const cmd=raw.toLowerCase();
+  if(cmd==="bp virtualalloc"){
+    bpSet=true;
+    log("[+] Breakpoint set on VirtualAlloc","good");
+    log("[+] Now press Run (F9)","info");
+    if(stage===1){ S[1].f9=true; render(); }
+  } else if(cmd.startsWith("bp ")){
+    log("[+] Breakpoint set on "+raw.slice(3),"good");
+  } else if(cmd==="bl"){
+    log(bpSet?"[0] VirtualAlloc (kernel32.dll)  active":"No breakpoints set","info");
+  } else if(cmd==="help"){
+    log("Commands:  bp <name>   bl   (use toolbar buttons for run/step)","info");
+  } else {
+    log("[-] Unknown command. Try:  bp VirtualAlloc","warn");
+  }
+}
+function doRestart(){
+  stage=0; bpSet=false; prev={};
+  document.getElementById("log").innerHTML="";
+  document.getElementById("scylla").classList.remove("vis");
+  ["sb1","sb2","sb3","sb4"].forEach((id,i)=>{
+    const b=document.getElementById(id);
+    b.className="sc-btn"; b.disabled=(i>0);
+  });
+  document.getElementById("imp-list").style.display="none";
+  document.getElementById("sc-msg").textContent="";
+  log("[+] Restarted — helloworld_packed.exe loaded","info");
+  render();
+}
+function sc1(){
+  log("[Scylla] Searching for IAT...","info");
+  setTimeout(()=>{
+    log("[Scylla] IAT found at 0x00402000  size: 0x100","good");
+    document.getElementById("sb1").className="sc-btn done";
+    document.getElementById("sb2").disabled=false;
+    document.getElementById("sc-msg").textContent="IAT found at 0x00402000";
+  },600);
+}
+function sc2(){
+  log("[Scylla] Resolving imports...","info");
+  setTimeout(()=>{
+    const imps=["kernel32.dll  →  ExitProcess","kernel32.dll  →  GetStdHandle","msvcrt.dll    →  printf","msvcrt.dll    →  puts"];
+    const il=document.getElementById("imp-list");
+    il.style.display="block";
+    il.innerHTML=imps.map(i=>`<div style="color:#4caf50">[+] ${i}</div>`).join("");
+    log("[Scylla] 4 imports resolved — all valid","good");
+    document.getElementById("sb2").className="sc-btn done";
+    document.getElementById("sb3").disabled=false;
+    document.getElementById("sc-msg").textContent="4 imports resolved";
+  },700);
+}
+function sc3(){
+  log("[Scylla] Dumping memory → helloworld_unpacked.exe...","info");
+  setTimeout(()=>{
+    log("[Scylla] Dump saved to disk","good");
+    document.getElementById("sb3").className="sc-btn done";
+    document.getElementById("sb4").disabled=false;
+    document.getElementById("sc-msg").textContent="Dumped → helloworld_unpacked.exe";
+  },700);
+}
+function sc4(){
+  log("[Scylla] Fixing IAT in dump file...","info");
+  setTimeout(()=>{
+    log("[Scylla] IAT fixed successfully","good");
+    log("[✓] UNPACKING COMPLETE — helloworld_unpacked.exe is ready","good");
+    document.getElementById("sb4").className="sc-btn done";
+    document.getElementById("sc-msg").innerHTML='<span style="color:#4caf50;font-weight:600">Done. helloworld_unpacked.exe is fully unpacked. Compare SHA256 with original to verify.</span>';
+  },700);
+}
+
+log("[+] helloworld_packed.exe loaded successfully","info");
+log("[+] Paused at system breakpoint — press Run (F9) to start","info");
+render();
+</script>
+</body>
+</html>
